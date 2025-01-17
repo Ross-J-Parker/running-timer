@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Runners Timer</title>
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        #timer {
+            font-size: 2em;
+            margin-bottom: 20px;
+        }
+        #runners_list button {
+            margin: 5px;
+        }
+        .runner-time {
+            margin: 5px;
+        }
+        .recorded {
+            background-color: #d4edda;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        .table-responsive {
+            overflow-x: auto;
+        }
+        @media (max-width: 767px) {
+            .table-responsive thead {
+                display: none;
+            }
+            .table-responsive td,
+            .table-responsive th {
+                display: block;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            .table-responsive td {
+                border: none;
+                border-bottom: 1px solid #dee2e6;
+                position: relative;
+                padding-left: 50%;
+            }
+            .table-responsive td::before {
+                content: attr(data-label);
+                position: absolute;
+                left: 0;
+                width: 50%;
+                padding-left: 15px;
+                font-weight: bold;
+                white-space: nowrap;
+            }
+        }
+        .lap-0 {
+            background-color: #ffffff;
+            color: black;
+        }
+        .lap-1 {
+            background-color: #cce5ff;
+            color: black;
+        }
+        .lap-2 {
+            background-color: #99ccff;
+            color: black;
+        }
+        .lap-3 {
+            background-color: #668cff;
+            color: white;
+        }
+        .lap-4 {
+            background-color: #3366ff;
+            color: white;
+        }
+        .lap-5 {
+            background-color: #0033cc;
+            color: white;
+        }
+        .lap-6 {
+            background-color: #002699;
+            color: white;
+        }
+        .lap-7 {
+            background-color: #001a66;
+            color: white;
+        }
+        /* Add more classes for additional laps if needed */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center">Runners Timer</h1>
+        <div class="form-group">
+            <label for="runner_name">Enter runner names (up to 12):</label>
+            <input type="text" id="runner_name" class="form-control">
+            <button class="btn btn-primary mt-2" onclick="addRunner()">Add Runner</button>
+        </div>
+        <div class="form-group">
+            <label for="race_type">Select race type:</label>
+            <select id="race_type" class="form-control">
+                <option value="100m">100m</option>
+                <option value="400m">400m</option>
+                <option value="800m">800m</option>
+                <option value="1500m">1500m</option>
+                <option value="3000m">3000m</option>
+                <option value="5000m">5000m</option>
+            </select>
+            <button class="btn btn-success mt-2" onclick="startTimer()">Start Timer</button>
+        </div>
+        <div id="timer" class="text-center">00:00:00</div>
+        <div id="runners_list" class="text-center"></div>
+        <div id="times_list" class="mt-3">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr id="table_head">
+                            <th scope="col">#</th>
+                            <th scope="col">Name</th>
+                            <th scope="col">Total Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="times_body">
+                    </tbody>
+                </table>
+            </div>
+            <div id="key" class="text-center mt-2"></div>
+        </div>
+        <button class="btn btn-danger mt-2" onclick="resetTimer()">Reset Timer</button>
+    </div>
+
+    <script>
+        let timerInterval;
+        let raceType;
+
+        function addRunner() {
+            var name = $('#runner_name').val();
+            $.post('/add_runner', {name: name}, function(data) {
+                $('#runners_list').empty();
+                data.runners.forEach(function(runner) {
+                    $('#runners_list').append(`<button class="btn btn-outline-primary runner-btn lap-0" onclick="recordTime('${runner}', this)">${runner}</button>`);
+                });
+                $('#runner_name').val('');
+            }).fail(function(xhr) {
+                alert(xhr.responseJSON.error);
+            });
+        }
+
+        function startTimer() {
+            raceType = $('#race_type').val();
+            $.post('/start_timer', {race_type: raceType}, function(data) {
+                const startTime = new Date(data.start_time);
+                timerInterval = setInterval(function() {
+                    const currentTime = new Date();
+                    const elapsedTime = new Date(currentTime - startTime);
+                    const hours = String(elapsedTime.getUTCHours()).padStart(2, '0');
+                    const minutes = String(elapsedTime.getUTCMinutes()).padStart(2, '0');
+                    const seconds = String(elapsedTime.getUTCSeconds()).padStart(2, '0');
+                    $('#timer').text(`${hours}:${minutes}:${seconds}`);
+                }, 1000);
+                $('#runners_list').empty();
+                data.runners.forEach(function(runner) {
+                    $('#runners_list').append(`<button class="btn btn-outline-primary runner-btn lap-0" onclick="recordTime('${runner}', this)">${runner}</button>`);
+                });
+                $('button[onclick="startTimer()"]').attr('disabled', true);
+                $('button[onclick="addRunner()"]').attr('disabled', true);
+                $('#runner_name').attr('disabled', true);
+                updateKey();
+                updateTableHead();
+            });
+        }
+
+        function recordTime(runner, button) {
+            $.post('/record_time', {runner: runner}, function(data) {
+                // Debugging: Log the sorted times received from the server
+                console.log("Sorted times received from server:", data.times);
+
+                // Convert times object to an array and sort by total time
+                const sortedEntries = Object.entries(data.times).sort((a, b) => {
+                    const totalTimeA = convertTimeToSeconds(a[1].total_time);
+                    const totalTimeB = convertTimeToSeconds(b[1].total_time);
+                    return totalTimeA - totalTimeB;
+                });
+
+                $('#times_body').empty();
+                sortedEntries.forEach(([runner, times], index) => {
+                    const lapTimes = times.lap_times.map((time, idx) => {
+                        if (raceType === '1500m' && idx === 0) {
+                            return time + '*';
+                        } else if ((raceType === '3000m' || raceType === '5000m') && idx === 0) {
+                            return time + '*';
+                        } else {
+                            return time;
+                        }
+                    });
+                    const totalTime = times.total_time;
+                    console.log(`Appending: ${index + 1}. ${runner}: ${lapTimes.join(', ')}, Total: ${totalTime}`);  // Debugging: Log each appended row
+                    let rowHtml = `<tr><th scope="row">${index + 1}</th><td data-label="Name">${runner}</td>`;
+                    lapTimes.forEach((lapTime, i) => {
+                        rowHtml += `<td data-label="L${i + 1}">${lapTime}</td>`;
+                    });
+                    rowHtml += `<td data-label="Total Time">${totalTime}</td></tr>`;
+                    $('#times_body').append(rowHtml);
+                });
+                // Debugging: Log the rendered times
+                console.log("Rendered times in table:", $('#times_body').html());
+
+                if (data.stop_timer) {
+                    clearInterval(timerInterval);
+                    $('button.runner-btn').attr('disabled', true);
+                    alert(data.message);
+                }
+
+                // Update button class based on lap count
+                const lapCount = $(button).data('lap-count') || 0;
+                $(button).removeClass(`lap-${lapCount}`).addClass(`lap-${lapCount + 1}`);
+                $(button).data('lap-count', lapCount + 1);
+            });
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            $.post('/reset', {}, function(data) {
+                $('#timer').text('00:00:00');
+                $('#runners_list').empty();
+                $('#times_body').empty();
+                $('#key').empty();
+                $('#table_head').html('<th scope="col">#</th><th scope="col">Name</th><th scope="col">Total Time</th>');
+                $('button[onclick="startTimer()"]').attr('disabled', false);
+                $('button[onclick="addRunner()"]').attr('disabled', false);
+                $('#runner_name').attr('disabled', false).val('');
+            });
+        }
+
+        function updateKey() {
+            let keyText = '';
+            if (raceType === '1500m') {
+                keyText = '* First lap is 300m';
+            } else if (raceType === '3000m' || raceType === '5000m') {
+                keyText = '* First lap is 200m';
+            }
+            $('#key').text(keyText);
+        }
+
+        function updateTableHead() {
+            let lapColumns = '';
+            const laps = {
+                '100m': 0,
+                '400m': 0,
+                '800m': 2,
+                '1500m': 4,
+                '3000m': 8,
+                '5000m': 13
+            };
+            const lapCount = laps[raceType];
+            for (let i = 1; i <= lapCount; i++) {
+                lapColumns += `<th scope="col">L${i}</th>`;
+            }
+            $('#table_head').html(`<th scope="col">#</th><th scope="col">Name</th>${lapColumns}<th scope="col">Total Time</th>`);
+        }
+
+        function convertTimeToSeconds(timeStr) {
+            const [minutes, seconds] = timeStr.split(':').map(parseFloat);
+            return minutes * 60 + seconds;
+        }
+    </script>
+</body>
+</html>
